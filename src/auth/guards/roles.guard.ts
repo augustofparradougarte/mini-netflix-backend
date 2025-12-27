@@ -7,15 +7,22 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { UserRole } from 'src/users/entities/user.entity';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
+  private readonly jwtSecret: string;
+
   constructor(
-    private reflector: Reflector,
-    private jwtService: JwtService,
-  ) {}
+    private readonly reflector: Reflector,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {
+    this.jwtSecret =
+      this.configService.get<string>('JWT_SECRET') || 'SECRET_KEY_EXAMEN';
+  }
 
   canActivate(context: ExecutionContext): boolean {
     const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
@@ -23,38 +30,34 @@ export class RolesGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
-    // Si la ruta no tiene @Roles, pasa normal
-    if (!requiredRoles) {
-      return true;
-    }
+    if (!requiredRoles) return true;
 
     const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
+    const authHeader: string | undefined = request.headers.authorization;
 
     if (!authHeader) {
       throw new UnauthorizedException('Token requerido');
     }
 
-    const [, token] = authHeader.split(' ');
+    const [bearer, token] = authHeader.split(' ');
+
+    if (bearer !== 'Bearer' || !token) {
+      throw new UnauthorizedException('Formato de token inválido');
+    }
 
     try {
-      // 👇 AQUÍ usamos el MISMO secret que en auth.module.ts
       const payload = this.jwtService.verify(token, {
-        secret: 'SECRET_KEY_EXAMEN',
+        secret: this.jwtSecret,
       });
-
-      // Guardamos el usuario decodificado por si hace falta después
-      request.user = payload;
 
       if (!requiredRoles.includes(payload.role)) {
         throw new ForbiddenException('No tienes permisos');
       }
 
+      request.user = payload;
       return true;
-    } catch (error) {
-      console.error('Error verificando token:', error.message);
+    } catch {
       throw new UnauthorizedException('Token inválido o expirado');
     }
   }
 }
-

@@ -3,38 +3,38 @@ import { UsersService } from 'src/users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
-import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly usersService: UsersService,
-    private readonly jwtService: JwtService,
+    private usersService: UsersService,
+    private jwtService: JwtService,
   ) {}
 
   async register(dto: RegisterDto) {
-    const hashed = await bcrypt.hash(dto.password, 10);
+    const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = await this.usersService.create({
-      ...dto,
-      password: hashed,
+      email: dto.email,
+      password: passwordHash,
+      role: dto.role,
     });
-    return { message: 'Usuario registrado', user };
+    return user;
   }
 
-  async login(dto: LoginDto) {
-    const user = await this.usersService.findByEmail(dto.email);
-    if (!user) throw new UnauthorizedException('Credenciales incorrectas');
+  async login(email: string, password: string) {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) throw new UnauthorizedException('Email no encontrado');
 
-    const match = await bcrypt.compare(dto.password, user.password);
-    if (!match) throw new UnauthorizedException('Credenciales incorrectas');
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) throw new UnauthorizedException('Contraseña incorrecta');
 
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,                        // 👈 muy importante
+    const token = this.jwtService.sign(
+      { id: user.id, email: user.email, role: user.role },
+    );
+
+    return {
+      message: 'Login exitoso',
+      token,
     };
-
-    const token = await this.jwtService.signAsync(payload);
-    return { message: 'Login exitoso', token };
   }
 }

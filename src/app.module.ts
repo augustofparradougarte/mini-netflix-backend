@@ -1,45 +1,38 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { SeriesModule } from './series/series.module';
-import { EpisodiosModule } from './episodios/episodios.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { SeriesModule } from './series/series.module';
+import { EpisodiosModule } from './episodios/episodios.module';
+import { RolesGuard } from './auth/guards/roles.guard'; // 👈 IMPORTANTE
 
 @Module({
   imports: [
-    // Lee variables de entorno (Render env y .env local)
     ConfigModule.forRoot({
       isGlobal: true,
     }),
 
-    // Configuración de TypeORM
     TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
-        const isProd = config.get<string>('NODE_ENV') === 'production';
-        const dbUrl = config.get<string>('DATABASE_URL');
+        const databaseUrl = config.get<string>('DATABASE_URL');
 
-        // 🔹 En Render (NODE_ENV=production) usamos la URL de Render
-        if (isProd && dbUrl) {
+        if (databaseUrl) {
           return {
             type: 'postgres',
-            url: dbUrl,              // <- AQUÍ usa DATABASE_URL
+            url: databaseUrl,
             autoLoadEntities: true,
             synchronize: true,
-            ssl: {
-              rejectUnauthorized: false, // necesario en Render
-            },
           };
         }
 
-        // 🔹 En local (tu PC) usamos los datos de .env
         return {
           type: 'postgres',
           host: config.get<string>('DB_HOST', 'localhost'),
-          port: +config.get<number>('DB_PORT', 5432),
+          port: parseInt(config.get<string>('DB_PORT', '5432')),
           username: config.get<string>('DB_USERNAME', 'postgres'),
           password: config.get<string>('DB_PASSWORD', 'postgres'),
           database: config.get<string>('DB_NAME', 'mini_netflix'),
@@ -49,10 +42,18 @@ import { AuthModule } from './auth/auth.module';
       },
     }),
 
-    SeriesModule,
-    EpisodiosModule,
     UsersModule,
     AuthModule,
+    SeriesModule,
+    EpisodiosModule,
+  ],
+
+  // 🚨 AQUÍ VA EL GUARD GLOBAL
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
+    },
   ],
 })
 export class AppModule {}
