@@ -7,22 +7,15 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { UserRole } from 'src/users/entities/user.entity';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  private readonly jwtSecret: string;
-
   constructor(
     private readonly reflector: Reflector,
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
-  ) {
-    this.jwtSecret =
-      this.configService.get<string>('JWT_SECRET') || 'SECRET_KEY_EXAMEN';
-  }
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
     const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
@@ -30,7 +23,10 @@ export class RolesGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
-    if (!requiredRoles) return true;
+    // Si la ruta no tiene @Roles(), no se exige token
+    if (!requiredRoles) {
+      return true;
+    }
 
     const request = context.switchToHttp().getRequest();
     const authHeader: string | undefined = request.headers.authorization;
@@ -46,9 +42,8 @@ export class RolesGuard implements CanActivate {
     }
 
     try {
-      const payload = this.jwtService.verify(token, {
-        secret: this.jwtSecret,
-      });
+      // 👇 Usa la configuración del JwtModule (mismo secreto que en AuthModule)
+      const payload = this.jwtService.verify(token);
 
       if (!requiredRoles.includes(payload.role)) {
         throw new ForbiddenException('No tienes permisos');
@@ -56,7 +51,9 @@ export class RolesGuard implements CanActivate {
 
       request.user = payload;
       return true;
-    } catch {
+    } catch (error) {
+      // Opcional: log para depurar
+      console.error('Error verificando token en RolesGuard:', error.message);
       throw new UnauthorizedException('Token inválido o expirado');
     }
   }
